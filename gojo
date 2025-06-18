@@ -1,323 +1,243 @@
--- Gojo Infinity Script for Roblox
--- Tạo hiệu ứng "Vô Hạn" - làm chậm và đẩy lùi kẻ địch khi tiến gần
-
+-- Script này đặt trong StarterGui (LocalScript)
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
+local playerGui = player:WaitForChild("PlayerGui")
 
--- Cấu hình Infinity
-local INFINITY_ENABLED = false
-local INFINITY_RADIUS = 20 -- Bán kính hiệu ứng
-local SLOW_FACTOR = 0.1 -- Độ chậm (0.1 = 10% tốc độ gốc)
-local REPEL_FORCE = 50 -- Lực đẩy lùi
-local EFFECT_UPDATE_RATE = 0.1 -- Tần suất cập nhật hiệu ứng
+-- Biến trạng thái
+local infinityActive = false
+local connections = {}
 
--- Lưu trữ tốc độ gốc của các đối tượng
-local originalSpeeds = {}
-local affectedPlayers = {}
+-- Tạo GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "GojoGui"
+screenGui.Parent = playerGui
 
--- Tạo hiệu ứng visual
-local function createInfinityEffect()
-    local effect = Instance.new("Part")
-    effect.Name = "InfinityField"
-    effect.Anchored = true
-    effect.CanCollide = false
-    effect.Shape = Enum.PartType.Ball
-    effect.Material = Enum.Material.ForceField
-    effect.BrickColor = BrickColor.new("Bright blue")
-    effect.Transparency = 0.7
-    effect.Size = Vector3.new(INFINITY_RADIUS * 2, INFINITY_RADIUS * 2, INFINITY_RADIUS * 2)
-    effect.CFrame = rootPart.CFrame
-    effect.Parent = workspace
-    
-    -- Animation xoay
-    local rotationTween = TweenService:Create(
-        effect, 
-        TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
-        {CFrame = effect.CFrame * CFrame.Angles(0, math.rad(360), 0)}
-    )
-    rotationTween:Play()
-    
-    return effect
-end
+-- Frame chính
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 200, 0, 120)
+mainFrame.Position = UDim2.new(0, 20, 0.5, -60)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
 
--- Tạo hiệu ứng particles
-local function createParticleEffect()
-    local attachment = Instance.new("Attachment")
-    attachment.Parent = rootPart
-    
-    local particles = Instance.new("ParticleEmitter")
-    particles.Parent = attachment
-    particles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-    particles.Color = ColorSequence.new(Color3.fromRGB(0, 162, 255))
-    particles.Size = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.5),
-        NumberSequenceKeypoint.new(1, 0)
-    }
-    particles.Lifetime = NumberRange.new(1, 2)
-    particles.Rate = 50
-    particles.SpreadAngle = Vector2.new(360, 360)
-    particles.Speed = NumberRange.new(5, 10)
-    
-    return particles
-end
+-- Bo góc cho frame
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = mainFrame
 
--- Áp dụng hiệu ứng infinity lên một người chơi
-local function applyInfinityEffect(targetPlayer)
-    if not targetPlayer.Character or targetPlayer == player then return end
-    
-    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local targetHumanoid = targetPlayer.Character:FindFirstChild("Humanoid")
-    
-    if not targetRoot or not targetHumanoid then return end
-    
-    local distance = (targetRoot.Position - rootPart.Position).Magnitude
-    
-    if distance <= INFINITY_RADIUS then
-        -- Lưu tốc độ gốc
-        if not originalSpeeds[targetPlayer] then
-            originalSpeeds[targetPlayer] = targetHumanoid.WalkSpeed
-        end
-        
-        -- Tính toán hiệu ứng dựa trên khoảng cách
-        local effectStrength = 1 - (distance / INFINITY_RADIUS)
-        local slowedSpeed = originalSpeeds[targetPlayer] * (SLOW_FACTOR + (1 - SLOW_FACTOR) * (1 - effectStrength))
-        
-        -- Áp dụng tốc độ chậm
-        targetHumanoid.WalkSpeed = slowedSpeed
-        
-        -- Tạo lực đẩy lùi (nghịch lý Zeno)
-        local direction = (targetRoot.Position - rootPart.Position).Unit
-        local repelForce = direction * REPEL_FORCE * effectStrength
-        
-        -- Tạo BodyVelocity để đẩy lùi
-        local bodyVelocity = targetRoot:FindFirstChild("InfinityRepel")
-        if not bodyVelocity then
-            bodyVelocity = Instance.new("BodyVelocity")
-            bodyVelocity.Name = "InfinityRepel"
-            bodyVelocity.MaxForce = Vector3.new(4000, 0, 4000)
-            bodyVelocity.Parent = targetRoot
-        end
-        
-        bodyVelocity.Velocity = repelForce
-        
-        -- Đánh dấu người chơi bị ảnh hưởng
-        affectedPlayers[targetPlayer] = true
-        
-        -- Tạo hiệu ứng visual trên mục tiêu
-        local targetEffect = targetRoot:FindFirstChild("InfinityTarget")
-        if not targetEffect then
-            targetEffect = Instance.new("SelectionBox")
-            targetEffect.Name = "InfinityTarget"
-            targetEffect.Color3 = Color3.fromRGB(0, 162, 255)
-            targetEffect.Transparency = 0.5
-            targetEffect.Adornee = targetRoot
-            targetEffect.Parent = targetRoot
-        end
-    else
-        -- Loại bỏ hiệu ứng khi ra ngoài phạm vi
-        removeInfinityEffect(targetPlayer)
-    end
-end
+-- Tiêu đề
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 40)
+titleLabel.Position = UDim2.new(0, 0, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "GOJO SATORU"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextScaled = true
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = mainFrame
 
--- Loại bỏ hiệu ứng infinity khỏi một người chơi
-local function removeInfinityEffect(targetPlayer)
-    if not targetPlayer.Character then return end
-    
-    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local targetHumanoid = targetPlayer.Character:FindFirstChild("Humanoid")
-    
-    if targetHumanoid and originalSpeeds[targetPlayer] then
-        targetHumanoid.WalkSpeed = originalSpeeds[targetPlayer]
-    end
-    
-    if targetRoot then
-        -- Loại bỏ lực đẩy
-        local bodyVelocity = targetRoot:FindFirstChild("InfinityRepel")
-        if bodyVelocity then
-            bodyVelocity:Destroy()
-        end
-        
-        -- Loại bỏ hiệu ứng visual
-        local targetEffect = targetRoot:FindFirstChild("InfinityTarget")
-        if targetEffect then
-            targetEffect:Destroy()
-        end
-    end
-    
-    originalSpeeds[targetPlayer] = nil
-    affectedPlayers[targetPlayer] = nil
-end
+-- Nút Infinity
+local infinityButton = Instance.new("TextButton")
+infinityButton.Size = UDim2.new(0.8, 0, 0, 35)
+infinityButton.Position = UDim2.new(0.1, 0, 0, 50)
+infinityButton.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
+infinityButton.Text = "INFINITY"
+infinityButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+infinityButton.TextScaled = true
+infinityButton.Font = Enum.Font.Gotham
+infinityButton.Parent = mainFrame
 
--- Bật/tắt Infinity
-local function toggleInfinity()
-    INFINITY_ENABLED = not INFINITY_ENABLED
-    
-    if INFINITY_ENABLED then
-        print("🔵 Gojo Infinity: ACTIVATED")
-        
-        -- Tạo hiệu ứng
-        local infinityField = createInfinityEffect()
-        local particles = createParticleEffect()
-        
-        -- Vòng lặp cập nhật hiệu ứng
-        local connection
-        connection = RunService.Heartbeat:Connect(function()
-            if not INFINITY_ENABLED then
-                connection:Disconnect()
-                infinityField:Destroy()
-                particles:Destroy()
-                
-                -- Loại bỏ hiệu ứng khỏi tất cả người chơi
-                for targetPlayer, _ in pairs(affectedPlayers) do
-                    removeInfinityEffect(targetPlayer)
-                end
-                return
-            end
-            
-            -- Cập nhật vị trí hiệu ứng
-            infinityField.CFrame = rootPart.CFrame
-            
-            -- Áp dụng hiệu ứng lên tất cả người chơi khác
-            for _, targetPlayer in pairs(Players:GetPlayers()) do
-                if targetPlayer ~= player then
-                    applyInfinityEffect(targetPlayer)
-                end
-            end
-        end)
-        
-    else
-        print("⚪ Gojo Infinity: DEACTIVATED")
-    end
-end
+-- Bo góc cho nút
+local buttonCorner = Instance.new("UICorner")
+buttonCorner.CornerRadius = UDim.new(0, 5)
+buttonCorner.Parent = infinityButton
 
--- Tạo GUI cho mobile
-local function createMobileGUI()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "GojoInfinityGUI"
-    screenGui.Parent = player:WaitForChild("PlayerGui")
+-- Label trạng thái
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, 0, 0, 25)
+statusLabel.Position = UDim2.new(0, 0, 0, 90)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Status: OFF"
+statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+statusLabel.TextScaled = true
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.Parent = mainFrame
+
+-- Hàm tạo hiệu ứng visual cho Infinity
+local function createInfinityEffect(character)
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
     
-    -- Main Frame
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 200, 0, 100)
-    mainFrame.Position = UDim2.new(0, 10, 0, 10)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Parent = screenGui
+    -- Tạo sphere bảo vệ
+    local sphere = Instance.new("Part")
+    sphere.Name = "InfinitySphere"
+    sphere.Shape = Enum.PartType.Ball
+    sphere.Material = Enum.Material.ForceField
+    sphere.CanCollide = false
+    sphere.Anchored = true
+    sphere.Size = Vector3.new(10, 10, 10)
+    sphere.Color = Color3.fromRGB(100, 200, 255)
+    sphere.Transparency = 0.8
+    sphere.CFrame = humanoidRootPart.CFrame
+    sphere.Parent = workspace
     
-    -- Corner
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
-    corner.Parent = mainFrame
-    
-    -- Title
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 30)
-    title.Position = UDim2.new(0, 0, 0, 0)
-    title.BackgroundTransparency = 1
-    title.Text = "🔵 GOJO INFINITY"
-    title.TextColor3 = Color3.fromRGB(0, 162, 255)
-    title.TextScaled = true
-    title.Font = Enum.Font.GothamBold
-    title.Parent = mainFrame
-    
-    -- Toggle Button
-    local toggleButton = Instance.new("TextButton")
-    toggleButton.Size = UDim2.new(0.8, 0, 0, 40)
-    toggleButton.Position = UDim2.new(0.1, 0, 0, 50)
-    toggleButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
-    toggleButton.Text = "❌ DEACTIVATED"
-    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleButton.TextScaled = true
-    toggleButton.Font = Enum.Font.GothamBold
-    toggleButton.Parent = mainFrame
-    
-    local buttonCorner = Instance.new("UICorner")
-    buttonCorner.CornerRadius = UDim.new(0, 8)
-    buttonCorner.Parent = toggleButton
-    
-    -- Button click event
-    toggleButton.MouseButton1Click:Connect(function()
-        toggleInfinity()
-        if INFINITY_ENABLED then
-            toggleButton.BackgroundColor3 = Color3.fromRGB(70, 255, 70)
-            toggleButton.Text = "✅ ACTIVATED"
+    -- Tạo hiệu ứng xoay
+    local rotateConnection
+    rotateConnection = RunService.Heartbeat:Connect(function()
+        if sphere.Parent and humanoidRootPart.Parent then
+            sphere.CFrame = humanoidRootPart.CFrame * CFrame.Angles(0, tick() * 2, 0)
         else
-            toggleButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
-            toggleButton.Text = "❌ DEACTIVATED"
+            rotateConnection:Disconnect()
         end
     end)
     
-    -- Status Label
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, 0, 0, 20)
-    statusLabel.Position = UDim2.new(0, 0, 1, 5)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = "Tap button or type /infinity"
-    statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    statusLabel.TextScaled = true
-    statusLabel.Font = Enum.Font.Gotham
-    statusLabel.Parent = mainFrame
-    
-    return screenGui
+    return sphere
 end
 
--- Tạo GUI
-local mobileGUI = createMobileGUI()
+-- Hàm tính khoảng cách nghịch lý Zeno
+local function zenoDistance(originalDistance, steps)
+    local distance = originalDistance
+    for i = 1, steps do
+        distance = distance / 2
+    end
+    return math.max(distance, 5) -- Khoảng cách tối thiểu là 5 studs
+end
 
--- Vẫn hỗ trợ phím bấm cho PC
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+-- Hàm kích hoạt Infinity
+local function activateInfinity()
+    local character = player.Character
+    if not character then return end
     
-    if input.KeyCode == Enum.KeyCode.X then
-        toggleInfinity()
-        -- Cập nhật GUI nếu có
-        local gui = player.PlayerGui:FindFirstChild("GojoInfinityGUI")
-        if gui then
-            local button = gui:FindFirstChild("Frame"):FindFirstChild("TextButton")
-            if INFINITY_ENABLED then
-                button.BackgroundColor3 = Color3.fromRGB(70, 255, 70)
-                button.Text = "✅ ACTIVATED"
-            else
-                button.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
-                button.Text = "❌ DEACTIVATED"
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    -- Tạo hiệu ứng visual
+    local sphere = createInfinityEffect(character)
+    
+    -- Lưu vị trí ban đầu
+    local originalPosition = humanoidRootPart.Position
+    
+    -- Kết nối để đẩy người chơi khác ra xa
+    local infinityConnection = RunService.Heartbeat:Connect(function()
+        if not character.Parent or not humanoidRootPart.Parent then
+            infinityConnection:Disconnect()
+            if sphere then sphere:Destroy() end
+            return
+        end
+        
+        -- Kiểm tra tất cả người chơi khác
+        for _, otherPlayer in pairs(Players:GetPlayers()) do
+            if otherPlayer ~= player and otherPlayer.Character then
+                local otherHRP = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if otherHRP then
+                    local distance = (humanoidRootPart.Position - otherHRP.Position).Magnitude
+                    
+                    -- Nếu người khác quá gần (trong vòng 15 studs)
+                    if distance < 15 then
+                        -- Tính hướng đẩy
+                        local direction = (otherHRP.Position - humanoidRootPart.Position).Unit
+                        
+                        -- Áp dụng nghịch lý Zeno - người càng gần thì càng bị đẩy mạnh
+                        local steps = math.floor((15 - distance) / 2) + 1
+                        local pushDistance = zenoDistance(distance, steps)
+                        
+                        -- Tạo vị trí mới
+                        local newPosition = humanoidRootPart.Position + direction * pushDistance
+                        
+                        -- Đẩy người chơi khác ra xa (chỉ có thể làm với character của mình)
+                        -- Do giới hạn LocalScript, chúng ta chỉ có thể tạo hiệu ứng visual
+                        
+                        -- Tạo hiệu ứng đẩy visual
+                        local pushEffect = Instance.new("Explosion")
+                        pushEffect.Position = otherHRP.Position
+                        pushEffect.BlastRadius = 0
+                        pushEffect.BlastPressure = 0
+                        pushEffect.Visible = false
+                        pushEffect.Parent = workspace
+                        
+                        -- Tạo hiệu ứng ánh sáng
+                        local light = Instance.new("PointLight")
+                        light.Color = Color3.fromRGB(100, 200, 255)
+                        light.Brightness = 2
+                        light.Range = 10
+                        light.Parent = otherHRP
+                        
+                        -- Xóa ánh sáng sau 0.5 giây
+                        game:GetService("Debris"):AddItem(light, 0.5)
+                    end
+                end
             end
         end
-    end
-end)
-
--- Chat commands
-player.Chatted:Connect(function(message)
-    local lowerMessage = string.lower(message)
+    end)
     
-    if lowerMessage == "/infinity" or lowerMessage == "/gojo" then
-        toggleInfinity()
-    elseif lowerMessage == "/help" or lowerMessage == "/commands" then
-        print("🔵 Gojo Infinity Commands:")
-        print("- Press X or type /infinity to toggle Infinity")
-        print("- Type /help for this message")
-        print("- Infinity radius: " .. INFINITY_RADIUS .. " studs")
+    table.insert(connections, infinityConnection)
+    
+    -- Lưu sphere để có thể xóa sau
+    table.insert(connections, function()
+        if sphere then sphere:Destroy() end
+    end)
+end
+
+-- Hàm tắt Infinity
+local function deactivateInfinity()
+    -- Ngắt tất cả kết nối
+    for _, connection in pairs(connections) do
+        if typeof(connection) == "RBXScriptConnection" then
+            connection:Disconnect()
+        elseif typeof(connection) == "function" then
+            connection() -- Gọi hàm cleanup
+        end
+    end
+    connections = {}
+    
+    -- Xóa tất cả sphere trong workspace
+    for _, obj in pairs(workspace:GetChildren()) do
+        if obj.Name == "InfinitySphere" then
+            obj:Destroy()
+        end
+    end
+end
+
+-- Xử lý sự kiện click nút
+infinityButton.MouseButton1Click:Connect(function()
+    infinityActive = not infinityActive
+    
+    if infinityActive then
+        activateInfinity()
+        statusLabel.Text = "Status: ON"
+        statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        infinityButton.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+        
+        -- Hiệu ứng click
+        local tween = TweenService:Create(infinityButton, 
+            TweenInfo.new(0.1, Enum.EasingStyle.Quad), 
+            {Size = UDim2.new(0.85, 0, 0, 40)}
+        )
+        tween:Play()
+        tween.Completed:Connect(function()
+            local tween2 = TweenService:Create(infinityButton, 
+                TweenInfo.new(0.1, Enum.EasingStyle.Quad), 
+                {Size = UDim2.new(0.8, 0, 0, 35)}
+            )
+            tween2:Play()
+        end)
+    else
+        deactivateInfinity()
+        statusLabel.Text = "Status: OFF"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        infinityButton.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
     end
 end)
 
-print("🔵 Gojo Infinity Script Loaded!")
-print("📋 Controls:")
-print("- Press X to toggle Infinity")
-print("- Type /infinity or /gojo to toggle")
-print("- Type /help for commands")
-
--- Xử lý khi character respawn
-player.CharacterAdded:Connect(function(newCharacter)
-    character = newCharacter
-    humanoid = character:WaitForChild("Humanoid")
-    rootPart = character:WaitForChild("HumanoidRootPart")
-    INFINITY_ENABLED = false
-    originalSpeeds = {}
-    affectedPlayers = {}
+-- Cleanup khi character respawn
+player.CharacterRemoving:Connect(function()
+    deactivateInfinity()
+    infinityActive = false
+    statusLabel.Text = "Status: OFF"
+    statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    infinityButton.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
 end)
