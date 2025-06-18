@@ -1,0 +1,237 @@
+-- Gojo Infinity Script for Roblox
+-- Tạo hiệu ứng "Vô Hạn" - làm chậm và đẩy lùi kẻ địch khi tiến gần
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- Cấu hình Infinity
+local INFINITY_ENABLED = false
+local INFINITY_RADIUS = 20 -- Bán kính hiệu ứng
+local SLOW_FACTOR = 0.1 -- Độ chậm (0.1 = 10% tốc độ gốc)
+local REPEL_FORCE = 50 -- Lực đẩy lùi
+local EFFECT_UPDATE_RATE = 0.1 -- Tần suất cập nhật hiệu ứng
+
+-- Lưu trữ tốc độ gốc của các đối tượng
+local originalSpeeds = {}
+local affectedPlayers = {}
+
+-- Tạo hiệu ứng visual
+local function createInfinityEffect()
+    local effect = Instance.new("Part")
+    effect.Name = "InfinityField"
+    effect.Anchored = true
+    effect.CanCollide = false
+    effect.Shape = Enum.PartType.Ball
+    effect.Material = Enum.Material.ForceField
+    effect.BrickColor = BrickColor.new("Bright blue")
+    effect.Transparency = 0.7
+    effect.Size = Vector3.new(INFINITY_RADIUS * 2, INFINITY_RADIUS * 2, INFINITY_RADIUS * 2)
+    effect.CFrame = rootPart.CFrame
+    effect.Parent = workspace
+    
+    -- Animation xoay
+    local rotationTween = TweenService:Create(
+        effect, 
+        TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
+        {CFrame = effect.CFrame * CFrame.Angles(0, math.rad(360), 0)}
+    )
+    rotationTween:Play()
+    
+    return effect
+end
+
+-- Tạo hiệu ứng particles
+local function createParticleEffect()
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = rootPart
+    
+    local particles = Instance.new("ParticleEmitter")
+    particles.Parent = attachment
+    particles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    particles.Color = ColorSequence.new(Color3.fromRGB(0, 162, 255))
+    particles.Size = NumberSequence.new{
+        NumberSequenceKeypoint.new(0, 0.5),
+        NumberSequenceKeypoint.new(1, 0)
+    }
+    particles.Lifetime = NumberRange.new(1, 2)
+    particles.Rate = 50
+    particles.SpreadAngle = Vector2.new(360, 360)
+    particles.Speed = NumberRange.new(5, 10)
+    
+    return particles
+end
+
+-- Áp dụng hiệu ứng infinity lên một người chơi
+local function applyInfinityEffect(targetPlayer)
+    if not targetPlayer.Character or targetPlayer == player then return end
+    
+    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local targetHumanoid = targetPlayer.Character:FindFirstChild("Humanoid")
+    
+    if not targetRoot or not targetHumanoid then return end
+    
+    local distance = (targetRoot.Position - rootPart.Position).Magnitude
+    
+    if distance <= INFINITY_RADIUS then
+        -- Lưu tốc độ gốc
+        if not originalSpeeds[targetPlayer] then
+            originalSpeeds[targetPlayer] = targetHumanoid.WalkSpeed
+        end
+        
+        -- Tính toán hiệu ứng dựa trên khoảng cách
+        local effectStrength = 1 - (distance / INFINITY_RADIUS)
+        local slowedSpeed = originalSpeeds[targetPlayer] * (SLOW_FACTOR + (1 - SLOW_FACTOR) * (1 - effectStrength))
+        
+        -- Áp dụng tốc độ chậm
+        targetHumanoid.WalkSpeed = slowedSpeed
+        
+        -- Tạo lực đẩy lùi (nghịch lý Zeno)
+        local direction = (targetRoot.Position - rootPart.Position).Unit
+        local repelForce = direction * REPEL_FORCE * effectStrength
+        
+        -- Tạo BodyVelocity để đẩy lùi
+        local bodyVelocity = targetRoot:FindFirstChild("InfinityRepel")
+        if not bodyVelocity then
+            bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.Name = "InfinityRepel"
+            bodyVelocity.MaxForce = Vector3.new(4000, 0, 4000)
+            bodyVelocity.Parent = targetRoot
+        end
+        
+        bodyVelocity.Velocity = repelForce
+        
+        -- Đánh dấu người chơi bị ảnh hưởng
+        affectedPlayers[targetPlayer] = true
+        
+        -- Tạo hiệu ứng visual trên mục tiêu
+        local targetEffect = targetRoot:FindFirstChild("InfinityTarget")
+        if not targetEffect then
+            targetEffect = Instance.new("SelectionBox")
+            targetEffect.Name = "InfinityTarget"
+            targetEffect.Color3 = Color3.fromRGB(0, 162, 255)
+            targetEffect.Transparency = 0.5
+            targetEffect.Adornee = targetRoot
+            targetEffect.Parent = targetRoot
+        end
+    else
+        -- Loại bỏ hiệu ứng khi ra ngoài phạm vi
+        removeInfinityEffect(targetPlayer)
+    end
+end
+
+-- Loại bỏ hiệu ứng infinity khỏi một người chơi
+local function removeInfinityEffect(targetPlayer)
+    if not targetPlayer.Character then return end
+    
+    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local targetHumanoid = targetPlayer.Character:FindFirstChild("Humanoid")
+    
+    if targetHumanoid and originalSpeeds[targetPlayer] then
+        targetHumanoid.WalkSpeed = originalSpeeds[targetPlayer]
+    end
+    
+    if targetRoot then
+        -- Loại bỏ lực đẩy
+        local bodyVelocity = targetRoot:FindFirstChild("InfinityRepel")
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+        end
+        
+        -- Loại bỏ hiệu ứng visual
+        local targetEffect = targetRoot:FindFirstChild("InfinityTarget")
+        if targetEffect then
+            targetEffect:Destroy()
+        end
+    end
+    
+    originalSpeeds[targetPlayer] = nil
+    affectedPlayers[targetPlayer] = nil
+end
+
+-- Bật/tắt Infinity
+local function toggleInfinity()
+    INFINITY_ENABLED = not INFINITY_ENABLED
+    
+    if INFINITY_ENABLED then
+        print("🔵 Gojo Infinity: ACTIVATED")
+        
+        -- Tạo hiệu ứng
+        local infinityField = createInfinityEffect()
+        local particles = createParticleEffect()
+        
+        -- Vòng lặp cập nhật hiệu ứng
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if not INFINITY_ENABLED then
+                connection:Disconnect()
+                infinityField:Destroy()
+                particles:Destroy()
+                
+                -- Loại bỏ hiệu ứng khỏi tất cả người chơi
+                for targetPlayer, _ in pairs(affectedPlayers) do
+                    removeInfinityEffect(targetPlayer)
+                end
+                return
+            end
+            
+            -- Cập nhật vị trí hiệu ứng
+            infinityField.CFrame = rootPart.CFrame
+            
+            -- Áp dụng hiệu ứng lên tất cả người chơi khác
+            for _, targetPlayer in pairs(Players:GetPlayers()) do
+                if targetPlayer ~= player then
+                    applyInfinityEffect(targetPlayer)
+                end
+            end
+        end)
+        
+    else
+        print("⚪ Gojo Infinity: DEACTIVATED")
+    end
+end
+
+-- Kích hoạt bằng phím X
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.X then
+        toggleInfinity()
+    end
+end)
+
+-- Chat commands
+player.Chatted:Connect(function(message)
+    local lowerMessage = string.lower(message)
+    
+    if lowerMessage == "/infinity" or lowerMessage == "/gojo" then
+        toggleInfinity()
+    elseif lowerMessage == "/help" or lowerMessage == "/commands" then
+        print("🔵 Gojo Infinity Commands:")
+        print("- Press X or type /infinity to toggle Infinity")
+        print("- Type /help for this message")
+        print("- Infinity radius: " .. INFINITY_RADIUS .. " studs")
+    end
+end)
+
+print("🔵 Gojo Infinity Script Loaded!")
+print("📋 Controls:")
+print("- Press X to toggle Infinity")
+print("- Type /infinity or /gojo to toggle")
+print("- Type /help for commands")
+
+-- Xử lý khi character respawn
+player.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
+    INFINITY_ENABLED = false
+    originalSpeeds = {}
+    affectedPlayers = {}
+end)
