@@ -197,12 +197,98 @@ local function toggleInfinity()
     end
 end
 
--- Kích hoạt bằng phím X
+-- Tạo GUI cho mobile
+local function createMobileGUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "GojoInfinityGUI"
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+    -- Main Frame
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 200, 0, 100)
+    mainFrame.Position = UDim2.new(0, 10, 0, 10)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+    
+    -- Corner
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = mainFrame
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Position = UDim2.new(0, 0, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "🔵 GOJO INFINITY"
+    title.TextColor3 = Color3.fromRGB(0, 162, 255)
+    title.TextScaled = true
+    title.Font = Enum.Font.GothamBold
+    title.Parent = mainFrame
+    
+    -- Toggle Button
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(0.8, 0, 0, 40)
+    toggleButton.Position = UDim2.new(0.1, 0, 0, 50)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+    toggleButton.Text = "❌ DEACTIVATED"
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.TextScaled = true
+    toggleButton.Font = Enum.Font.GothamBold
+    toggleButton.Parent = mainFrame
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 8)
+    buttonCorner.Parent = toggleButton
+    
+    -- Button click event
+    toggleButton.MouseButton1Click:Connect(function()
+        toggleInfinity()
+        if INFINITY_ENABLED then
+            toggleButton.BackgroundColor3 = Color3.fromRGB(70, 255, 70)
+            toggleButton.Text = "✅ ACTIVATED"
+        else
+            toggleButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+            toggleButton.Text = "❌ DEACTIVATED"
+        end
+    end)
+    
+    -- Status Label
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0, 20)
+    statusLabel.Position = UDim2.new(0, 0, 1, 5)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Tap button or type /infinity"
+    statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    statusLabel.TextScaled = true
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.Parent = mainFrame
+    
+    return screenGui
+end
+
+-- Tạo GUI
+local mobileGUI = createMobileGUI()
+
+-- Vẫn hỗ trợ phím bấm cho PC
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
     if input.KeyCode == Enum.KeyCode.X then
         toggleInfinity()
+        -- Cập nhật GUI nếu có
+        local gui = player.PlayerGui:FindFirstChild("GojoInfinityGUI")
+        if gui then
+            local button = gui:FindFirstChild("Frame"):FindFirstChild("TextButton")
+            if INFINITY_ENABLED then
+                button.BackgroundColor3 = Color3.fromRGB(70, 255, 70)
+                button.Text = "✅ ACTIVATED"
+            else
+                button.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+                button.Text = "❌ DEACTIVATED"
+            end
+        end
     end
 end)
 
